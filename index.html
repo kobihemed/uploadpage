@@ -34,7 +34,7 @@
     .container {
       background: var(--card);
       width: 100%;
-      max-width: 440px;
+      max-width: 480px;
       border-radius: 16px;
       box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08);
       padding: 24px;
@@ -91,8 +91,9 @@
       font-size: 0.9rem;
       font-weight: 500;
       color: #334155;
-      word-break: break-all;
       margin-top: 6px;
+      max-height: 120px;
+      overflow-y: auto;
     }
     button.submit-btn {
       width: 100%;
@@ -135,27 +136,28 @@
     <p class="subtitle">העלאה מהירה ישירות לאחסון</p>
 
     <div class="form-group">
-      <label for="uploaderName">שם השולח (לא חובה):</label>
-      <input type="text" id="uploaderName" placeholder="השאר ריק למשלוח אנונימי">
+      <label for="uploaderName">שם השולח (תיפתח תיקייה ייעודית בשמך):</label>
+      <input type="text" id="uploaderName" placeholder="השאר ריק להעלאה אנונימית">
     </div>
 
     <div class="dropzone" id="dropArea" onclick="document.getElementById('fileInput').click()">
       <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
-      <div><strong>לחץ לבחירת קובץ</strong> או גרור לכאן</div>
-      <div class="file-status" id="fileStatus">טרם נבחר קובץ</div>
+      <div><strong>לחץ לבחירת קבצים</strong> או גרור לכאן</div>
+      <div class="file-status" id="fileStatus">טרם נבחרו קבצים</div>
     </div>
     
-    <input type="file" id="fileInput" style="display:none;" onchange="handleFileSelect(event)">
+    <!-- הוספת multiple מאפשרת בחירת מספר קבצים במקביל -->
+    <input type="file" id="fileInput" multiple style="display:none;" onchange="handleFileSelect(event)">
 
-    <button id="submitBtn" class="submit-btn" onclick="submitUpload()" disabled>העלה קובץ</button>
+    <button id="submitBtn" class="submit-btn" onclick="submitUpload()" disabled>העלה קבצים</button>
     <div id="responseMsg" class="msg"></div>
   </div>
 
   <script>
-    // הדבק כאן את כתובת ה-Web App משלב 2
+    // הדבק כאן את כתובת ה-Web App שלך מה-Apps Script
     const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwFpuqc3RkFdLCYm8SSbQHGCk2FR721KiZ4lEcpHcZNX47nzJd3HMSIacrULUK4jQni/exec';
 
-    let selectedFile = null;
+    let selectedFiles = [];
     const dropArea = document.getElementById('dropArea');
 
     ['dragenter', 'dragover'].forEach(name => {
@@ -165,67 +167,91 @@
       dropArea.addEventListener(name, (e) => { e.preventDefault(); }, false);
     });
     dropArea.addEventListener('drop', (e) => {
-      const files = e.dataTransfer.files;
-      if (files.length) handleChosenFile(files[0]);
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length) handleChosenFiles(files);
     }, false);
 
     function handleFileSelect(e) {
-      if (e.target.files.length) handleChosenFile(e.target.files[0]);
+      const files = Array.from(e.target.files);
+      if (files.length) handleChosenFiles(files);
     }
 
-    function handleChosenFile(file) {
-      selectedFile = file;
-      document.getElementById('fileStatus').textContent = `נבחר: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
-      document.getElementById('submitBtn').disabled = false;
+    function handleChosenFiles(files) {
+      selectedFiles = files;
+      const status = document.getElementById('fileStatus');
+      const submitBtn = document.getElementById('submitBtn');
+
+      if (files.length === 1) {
+        status.textContent = `נבחר קובץ אחד: ${files[0].name}`;
+      } else {
+        status.textContent = `נבחרו ${files.length} קבצים להעלאה`;
+      }
+      submitBtn.disabled = false;
+    }
+
+    function readFileAsDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
     }
 
     async function submitUpload() {
-      if (!selectedFile) return;
+      if (!selectedFiles.length) return;
 
       const submitBtn = document.getElementById('submitBtn');
       const msg = document.getElementById('responseMsg');
       const name = document.getElementById('uploaderName').value;
 
       submitBtn.disabled = true;
-      submitBtn.textContent = 'מעלה... נא להמתין';
       msg.className = 'msg';
       msg.textContent = '';
 
-      const reader = new FileReader();
-      reader.onload = async function(e) {
-        const payload = {
-          fileData: e.target.result,
-          fileName: selectedFile.name,
-          name: name
-        };
+      let successCount = 0;
+      let failCount = 0;
+
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        submitBtn.textContent = `מעלה קובץ ${i + 1} מתוך ${selectedFiles.length}...`;
 
         try {
+          const fileData = await readFileAsDataURL(file);
+          const payload = {
+            fileData: fileData,
+            fileName: file.name,
+            name: name
+          };
+
           const res = await fetch(SCRIPT_URL, {
             method: 'POST',
             body: JSON.stringify(payload)
           });
           const result = await res.json();
 
-          submitBtn.textContent = 'העלה קובץ';
           if (result.success) {
-            msg.className = 'msg success';
-            msg.textContent = 'הקובץ הועלה בהצלחה!';
-            document.getElementById('fileStatus').textContent = 'טרם נבחר קובץ';
-            document.getElementById('fileInput').value = '';
-            selectedFile = null;
+            successCount++;
           } else {
-            msg.className = 'msg error';
-            msg.textContent = 'שגיאה: ' + result.error;
-            submitBtn.disabled = false;
+            failCount++;
           }
         } catch (err) {
-          submitBtn.textContent = 'העלה קובץ';
-          submitBtn.disabled = false;
-          msg.className = 'msg error';
-          msg.textContent = 'שגיאת תקשורת עם השרת.';
+          failCount++;
         }
-      };
-      reader.readAsDataURL(selectedFile);
+      }
+
+      submitBtn.textContent = 'העלה קבצים';
+      if (failCount === 0) {
+        msg.className = 'msg success';
+        msg.textContent = `כל ${successCount} הקבצים הועלו בהצלחה!`;
+        document.getElementById('fileStatus').textContent = 'טרם נבחרו קבצים';
+        document.getElementById('fileInput').value = '';
+        selectedFiles = [];
+      } else {
+        msg.className = 'msg error';
+        msg.textContent = `הועלו בהצלחה: ${successCount}, נכשלו: ${failCount}`;
+        submitBtn.disabled = false;
+      }
     }
   </script>
 </body>
